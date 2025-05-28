@@ -2,6 +2,7 @@
 
 Aplicación desarrollada en Flutter para **descarga y reproducción de playlists MP3**. Esta app permite al usuario visualizar, descargar y reproducir canciones desde una interfaz intuitiva y eficiente.
 
+<<<<<<< HEAD
 ---
 
 ## 🎯 Funcionalidades principales
@@ -69,3 +70,6 @@ Para una mejor experiencia de desarrollo, asegúrate de tener configurado:
 
 
 
+=======
+
+>>>>>>> 9ac0c9303e410a9e652a6de0ce88dbdb117ac423
