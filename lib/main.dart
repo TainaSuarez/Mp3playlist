@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:mp3_playlist/themes/themes_provider.dart';
+import 'package:mp3_playlist/view/home_page.dart';
+import 'package:mp3_playlist/view_model/playlist_provider.dart';
+import 'package:mp3_playlist/view_model/themes_provider.dart';
 import 'package:provider/provider.dart';
-import 'pages/home_page.dart';
-import 'models/playlist_provider.dart';
+
 
 void main() {
   runApp(
