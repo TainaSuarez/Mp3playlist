@@ -1,33 +1,17 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mp3_playlist/model/song.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class PlaylistProvider extends ChangeNotifier {
-  final List<Song> _playlist = [
-    Song(
-      songName: "Crush",
-      artistName: "Andree Amos/Isaac Elsie/Jace Amos/Patmixedit Patmixedit",
-      albumArtImagePath: "assets/images/default_album_art.png",
-      audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1237_01_Crush_Full.mp3",
-    ),
-    Song(
-      songName: "When Duty Calls",
-      artistName: "Nathan Forsbach/Ross Redmond",
-      albumArtImagePath: "assets/images/default_album_art.png",
-      audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1188_11_When%20Duty%20Calls_Full.mp3",
-    ),
-    Song(
-      songName: "Higher Self",
-      artistName: "John Cimino",
-      albumArtImagePath: "assets/images/default_album_art.png",
-      audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1199_01_Higher%20Self_Full.mp3",
-    ),
-  ];
-
+  List<Song> _playlist = [];
   int? _currentSongIndex;
   final AudioPlayer _audioPlayer = AudioPlayer();
 
@@ -53,6 +37,11 @@ class PlaylistProvider extends ChangeNotifier {
 
   // constructor
   PlaylistProvider() {
+    _initAudioPlayer();
+    _loadPlaylist();
+  }
+
+  Future<void> _initAudioPlayer() async {
     _audioPlayer.positionStream.listen((position) {
       _currentPosition = position;
       notifyListeners();
@@ -68,6 +57,46 @@ class PlaylistProvider extends ChangeNotifier {
       notifyListeners();
     });
     _checkDownloads();
+  }
+
+  Future<void> _loadPlaylist() async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://www.rafaelamorim.com.br/mobile2/musicas/list.json'),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonData = json.decode(response.body);
+        _playlist = jsonData.map((json) => Song.fromJson(json)).toList();
+        notifyListeners();
+      } else {
+        throw Exception('Error al cargar la playlist: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error al cargar la playlist: $e');
+      // en caso de que de error va usar una lista de respaldo 
+      _playlist = [
+        Song(
+          songName: "Crush",
+          artistName: "Andree Amos/Isaac Elsie/Jace Amos/Patmixedit Patmixedit",
+          albumArtImagePath: "assets/images/default_album_art.png",
+          audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1237_01_Crush_Full.mp3",
+        ),
+        Song(
+          songName: "When Duty Calls",
+          artistName: "Nathan Forsbach/Ross Redmond",
+          albumArtImagePath: "assets/images/default_album_art.png",
+          audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1188_11_When%20Duty%20Calls_Full.mp3",
+        ),
+        Song(
+          songName: "Higher Self",
+          artistName: "John Cimino",
+          albumArtImagePath: "assets/images/default_album_art.png",
+          audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1199_01_Higher%20Self_Full.mp3",
+        ),
+      ];
+      notifyListeners();
+    }
   }
 
   // setters
@@ -113,7 +142,6 @@ class PlaylistProvider extends ChangeNotifier {
     });
   }
 
-  
   static void _downloadIsolate(List<dynamic> args) async {
     final String url = args[0];
     final SendPort sendPort = args[1];
@@ -131,7 +159,6 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  
   static Future<File> _getLocalFileStatic(String url) async {
     final dir = await getApplicationDocumentsDirectory();
     final filename = Uri.parse(url).pathSegments.last;
@@ -192,6 +219,12 @@ class PlaylistProvider extends ChangeNotifier {
       currentSongIndex = _currentSongIndex;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
   }
 }
 
