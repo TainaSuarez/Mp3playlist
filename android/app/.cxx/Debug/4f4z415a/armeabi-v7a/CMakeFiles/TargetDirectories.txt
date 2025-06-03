@@ -1,0 +1,2 @@
+D:/Usuarios/Marla/Escritorio/Repositorios 2025/Compartidos/Mp3playlist/android/app/.cxx/Debug/4f4z415a/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/Usuarios/Marla/Escritorio/Repositorios 2025/Compartidos/Mp3playlist/android/app/.cxx/Debug/4f4z415a/armeabi-v7a/CMakeFiles/rebuild_cache.dir

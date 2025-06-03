@@ -1,0 +1,2 @@
+D:/Usuarios/Marla/Escritorio/Repositorios 2025/Compartidos/Mp3playlist/android/app/.cxx/RelWithDebInfo/6n5v656i/x86_64/CMakeFiles/edit_cache.dir
+D:/Usuarios/Marla/Escritorio/Repositorios 2025/Compartidos/Mp3playlist/android/app/.cxx/RelWithDebInfo/6n5v656i/x86_64/CMakeFiles/rebuild_cache.dir

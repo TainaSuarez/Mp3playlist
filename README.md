@@ -24,7 +24,7 @@ Aplicación desarrollada en Flutter para **descarga y reproducción de playlists
 
 ## 👩‍💻 Integrantes del equipo
 
-- **Marla Méndez**
+- **Marla Mendez**
 - **Paula Suárez**
 
 ---
