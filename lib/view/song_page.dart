@@ -1,31 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:mp3_playlist/view/components/neu_box.dart';
 import 'package:mp3_playlist/view_model/playlist_provider.dart';
+import 'package:mp3_playlist/model/song.dart';
 import 'package:provider/provider.dart';
+import 'package:audio_service/audio_service.dart';
 
 class SongPage extends StatelessWidget {
-  final int songIndex;
-  
-  const SongPage({
-    super.key,
-    required this.songIndex,
-  });
+  const SongPage({super.key});
 
-   
-   String formatTime(Duration duration) {
+  String formatTime(Duration duration) {
     String twoDigitSeconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     String formattedTime = "${duration.inMinutes}:$twoDigitSeconds";
     return formattedTime;
-   }
-     
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PlaylistProvider>(builder: (context, value, child) {
-     
       final playlist = value.playlist;
+      final currentSongIndex = value.currentSongIndex;
 
-  
-      final currentSongIndex = playlist[value.currentSongIndex ?? 0];
+      if (currentSongIndex == null || currentSongIndex < 0 || currentSongIndex >= playlist.length) {
+        return Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          appBar: AppBar(title: const Text("P L A Y L I S T")),
+          body: const Center(child: Text("Selecciona una canción")),
+        );
+      }
+
+      final songFromList = playlist[currentSongIndex];
 
       return Scaffold(
         backgroundColor: Theme.of(context).colorScheme.background,
@@ -35,68 +38,53 @@ class SongPage extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-              
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    
                     IconButton(
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.arrow_back),
                     ),
-                    
                     const Text("P L A Y L I S T"),
-                    
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(Icons.menu),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 25),
-                
                 NeuBox(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.asset(value.playlist[songIndex].albumArtImagePath),
+                    child: Image.asset(songFromList.albumArtImagePath),
                   ),
                 ),
                 const SizedBox(height: 20),
-                
                 Padding(
                   padding: const EdgeInsets.all(15.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                     
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            value.playlist[songIndex].songName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              songFromList.songName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 20,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Text(
-                            value.playlist[songIndex].artistName,
-                            style: TextStyle(
-                              color: Colors.grey[600],
+                            Text(
+                              songFromList.artistName,
+                              style: TextStyle(color: Colors.grey[600]),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ],
-                      ),
-                      
-                      Icon(
-                        Icons.favorite,
-                        color: Colors.red[400],
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 25),
-                
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 25.0),
                   child: Column(
@@ -104,31 +92,27 @@ class SongPage extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                         
-                          Text(formatTime(value.currentDuration)),
-                          
+                          Text(formatTime(value.currentPosition)),
                           const Icon(Icons.shuffle),
-                         
                           const Icon(Icons.repeat),
-                          
-                          Text(formatTime(value.totalDuration)),
+                          Text(formatTime(Duration(
+                            seconds: value.audioHandler.mediaItem.value?.duration?.inSeconds ?? 0
+                          ))),
                         ],
                       ),
-                      
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
                         ),
                         child: Slider(
                           min: 0,
-                          max: value.totalDuration.inSeconds.toDouble(),
-                          value: value.currentPosition.inSeconds.toDouble(),
+                          max: value.audioHandler.mediaItem.value?.duration?.inSeconds.toDouble() ?? 0,
+                          value: value.currentPosition.inSeconds
+                              .toDouble()
+                              .clamp(0.0, value.audioHandler.mediaItem.value?.duration?.inSeconds.toDouble() ?? 0),
                           activeColor: Colors.green,
-                          onChanged: (double newValue) {
-                            
-                          },
+                          onChanged: (double newValue) {},
                           onChangeEnd: (double newValue) {
-                           
                             value.seekTo(Duration(seconds: newValue.toInt()));
                           },
                         ),
@@ -137,36 +121,87 @@ class SongPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                
+                if (songFromList.downloadStatus == DownloadStatus.downloading)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      children: [
+                        const Text("Cargando..."),
+                        LinearProgressIndicator(value: songFromList.downloadProgress),
+                      ],
+                    ),
+                  ),
+                if (songFromList.downloadStatus == DownloadStatus.error)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text("Error", style: TextStyle(color: Colors.red)),
+                  ),
                 Row(
                   children: [
-                  
                     Expanded(
                       child: GestureDetector(
-                        onTap: value.playPreviousSong,
-                        child: const NeuBox(
-                          child: Icon(Icons.skip_previous),
+                        onTap: value.previousSong,
+                        child: const NeuBox(child: Icon(Icons.skip_previous)),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          final index = value.currentSongIndex;
+                          if (index == null) return;
+                          
+                          if (!value.isPlaying) {
+                            value.playCurrentSong();
+                          } else {
+                            value.playSongAtIndex(index);
+                          }
+                        },
+                        child: NeuBox(
+                          child: Icon(
+                            Icons.play_arrow,
+                            size: 28,
+                            color: value.isPlaying ? Colors.grey : Colors.black,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 20),
-                    
                     Expanded(
-                      flex: 2,
                       child: GestureDetector(
-                        onTap: () => value.pauseOrResume(),
+                        onTap: () {
+                          if (value.isPlaying) {
+                            value.pauseSong();
+                          }
+                        },
                         child: NeuBox(
-                          child: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
+                          child: Icon(
+                            Icons.pause,
+                            size: 28,
+                            color: value.isPlaying ? Colors.black : Colors.grey,
+                          ),
                         ),
                       ),
                     ),
-                   
+                    const SizedBox(width: 20),
                     Expanded(
                       child: GestureDetector(
-                        onTap: value.playNextSong,
+                        onTap: () {
+                          final index = value.currentSongIndex;
+                          if (index == null) return;
+                          value.seekTo(Duration.zero);
+                          value.playSongAtIndex(index);
+                        },
                         child: const NeuBox(
-                          child: Icon(Icons.skip_next),
+                          child: Icon(Icons.restart_alt, size: 28),
                         ),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: value.nextSong,
+                        child: const NeuBox(child: Icon(Icons.skip_next)),
                       ),
                     ),
                   ],

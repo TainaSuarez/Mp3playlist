@@ -3,7 +3,7 @@ import 'dart:isolate';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mp3_playlist/model/song.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -11,9 +11,9 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class PlaylistProvider extends ChangeNotifier {
+  final AudioHandler _audioHandler;
   List<Song> _playlist = [];
   int? _currentSongIndex;
-  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // duraciones
   Duration _currentPosition = Duration.zero;
@@ -22,9 +22,6 @@ class PlaylistProvider extends ChangeNotifier {
   // estado de reproducción
   bool _isPlaying = false;
 
-  // estado de descarga
-  Map<String, bool> _downloaded = {};
-
   // getters
   List<Song> get playlist => _playlist;
   int? get currentSongIndex => _currentSongIndex;
@@ -32,31 +29,52 @@ class PlaylistProvider extends ChangeNotifier {
   Duration get currentPosition => _currentPosition;
   Duration get currentDuration => _currentPosition;
   Duration get totalDuration => _totalDuration;
-  AudioPlayer get audioPlayer => _audioPlayer;
-  bool isDownloaded(String url) => _downloaded[url] ?? false;
+  AudioHandler get audioHandler => _audioHandler;
 
-  // constructor
-  PlaylistProvider() {
-    _initAudioPlayer();
+  PlaylistProvider(this._audioHandler) {
+    _initAudioHandler();
     _loadPlaylist();
+    _setupPlaybackStateListener(); 
+    _setupMediaItemListener(); 
+    _setupPositionListener(); 
   }
 
-  Future<void> _initAudioPlayer() async {
-    _audioPlayer.positionStream.listen((position) {
+  Future<void> _initAudioHandler() async {
+   
+  }
+
+  void _setupPlaybackStateListener() {
+
+     _audioHandler.playbackState.listen((state) {
+    final newIsPlaying = state.playing;
+    if (_isPlaying != newIsPlaying) {
+      _isPlaying = newIsPlaying;
+      notifyListeners();
+    }
+  });
+  }
+
+  void _setupMediaItemListener() {
+     _audioHandler.mediaItem.listen((mediaItem) {
+    if (mediaItem != null) {
+      _totalDuration = mediaItem.duration ?? Duration.zero;
+      final index = _playlist.indexWhere((song) => 
+          song.audioPath == mediaItem.id || 
+          (song.localPath != null && song.localPath == mediaItem.id));
+      if (index != -1) {
+        _currentSongIndex = index;
+        notifyListeners();
+      }
+    }
+  });
+    
+  }
+
+  void _setupPositionListener() {
+    AudioService.position.listen((position) {
       _currentPosition = position;
       notifyListeners();
     });
-    _audioPlayer.durationStream.listen((duration) {
-      if (duration != null) {
-        _totalDuration = duration;
-        notifyListeners();
-      }
-    });
-    _audioPlayer.playerStateStream.listen((state) {
-      _isPlaying = state.playing;
-      notifyListeners();
-    });
-    _checkDownloads();
   }
 
   Future<void> _loadPlaylist() async {
@@ -68,13 +86,13 @@ class PlaylistProvider extends ChangeNotifier {
       if (response.statusCode == 200) {
         final List<dynamic> jsonData = json.decode(response.body);
         _playlist = jsonData.map((json) => Song.fromJson(json)).toList();
+         await _checkDownloads(); 
         notifyListeners();
       } else {
         throw Exception('Error al cargar la playlist: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error al cargar la playlist: $e');
-      // en caso de que de error va usar una lista de respaldo 
       _playlist = [
         Song(
           songName: "Crush",
@@ -95,104 +113,129 @@ class PlaylistProvider extends ChangeNotifier {
           audioPath: "https://www.rafaelamorim.com.br/mobile2/musicas/AXIS1199_01_Higher%20Self_Full.mp3",
         ),
       ];
+  
+       await _checkDownloads(); 
       notifyListeners();
     }
   }
 
-  // setters
   set currentSongIndex(int? newIndex) {
-    _currentSongIndex = newIndex;
-    if (newIndex != null) {
-      final song = _playlist[newIndex];
-      final url = song.audioPath;
-      if (_downloaded[url] == true) {
-        _playFromFile(url);
-      } else {
-        playSong(url);
-        _startDownloadInBackground(url);
-      }
-    }
-    notifyListeners();
-  }
-
-  // desde la url reproducir
-  Future<void> playSong(String url) async {
-    await _audioPlayer.setUrl(url);
-    await _audioPlayer.play();
-  }
-
-  // reproducir cancion local
-  Future<void> _playFromFile(String url) async {
-    final file = await _getLocalFile(url);
-    if (await file.exists()) {
-      await _audioPlayer.setFilePath(file.path);
-      await _audioPlayer.play();
+    debugPrint('PlaylistProvider.set currentSongIndex llamado con newIndex: $newIndex'); 
+    if (_currentSongIndex != newIndex) {
+      _currentSongIndex = newIndex;
+      notifyListeners();
     }
   }
 
-  // descarga segundo plano
-  void _startDownloadInBackground(String url) async {
-    final ReceivePort receivePort = ReceivePort();
-    await Isolate.spawn(_downloadIsolate, [url, receivePort.sendPort]);
-    receivePort.listen((dynamic message) async {
-      if (message == true) {
-        _downloaded[url] = true;
-        notifyListeners();
-      }
-    });
-  }
 
-  static void _downloadIsolate(List<dynamic> args) async {
-    final String url = args[0];
-    final SendPort sendPort = args[1];
+  Future<void> playSongAtIndex(int index) async {
+  debugPrint('playSongAtIndex llamado con index: $index');
+  if (index >= 0 && index < _playlist.length) {
+    final song = _playlist[index];
+    final audioId = song.localPath ?? song.audioPath;
+
+    
+    final currentMediaItem = _audioHandler.mediaItem.value;
+    final bool isSameSong = currentMediaItem?.id == audioId;
+
+    if (isSameSong && _isPlaying) {
+      await pauseSong();
+      return;
+    }
+
+    _currentSongIndex = index;
+    
+    final mediaItem = MediaItem(
+      id: audioId,
+      album: "Playlist MP3",
+      title: song.songName,
+      artist: song.artistName,
+      artUri: null,
+      duration: null,
+    );
+
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final file = await _getLocalFileStatic(url);
-        await file.writeAsBytes(response.bodyBytes);
-        sendPort.send(true);
-      } else {
-        sendPort.send(false);
+      
+      if (!isSameSong) {
+        final List<MediaItem> queue = _playlist.map((s) => MediaItem(
+          id: s.localPath ?? s.audioPath,
+          album: "Playlist MP3",
+          title: s.songName,
+          artist: s.artistName,
+          artUri: null,
+          duration: null,
+        )).toList();
+
+        await _audioHandler.updateQueue(queue);
+        await _audioHandler.skipToQueueItem(index);
       }
-    } catch (_) {
-      sendPort.send(false);
+      
+      await _audioHandler.play();
+    } catch (e) {
+      debugPrint('Error al iniciar reproducción: $e');
+      _playlist[index].downloadStatus = DownloadStatus.error;
+      notifyListeners();
+    }
+  }
+}
+
+  Future<void> playCurrentSong() async {
+    debugPrint('playCurrentSong llamado');
+    if (_currentSongIndex != null) {
+      try {
+        await _audioHandler.play();
+      } catch (e) {
+        debugPrint('Error al reproducir la canción actual: $e');
+      }
     }
   }
 
-  static Future<File> _getLocalFileStatic(String url) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final filename = Uri.parse(url).pathSegments.last;
-    return File('${dir.path}/$filename');
-  }
+  Future<void> _checkDownloads() async {
+      final appDocDir = await getApplicationDocumentsDirectory(); 
+      for (var song in _playlist) {
+         final filename = Uri.parse(song.audioPath).pathSegments.last;
+         final localFile = File('${appDocDir.path}/$filename'); 
 
-  Future<File> _getLocalFile(String url) async {
-    return _getLocalFileStatic(url);
-  }
-
-  // verificar q canciones ya estan descargadas
-  void _checkDownloads() async {
-    for (var song in _playlist) {
-      final file = await _getLocalFile(song.audioPath);
-      if (await file.exists()) {
-        _downloaded[song.audioPath] = true;
+        if (await localFile.exists()) {
+          song.localPath = localFile.path;
+          song.downloadStatus = DownloadStatus.completed;
+        } else {
+           song.localPath = null;
+           if (song.downloadStatus != DownloadStatus.downloading) { 
+             song.downloadStatus = DownloadStatus.notStarted;
+           }
+        }
+         
+         if (song.downloadStatus != DownloadStatus.downloading && song.downloadStatus != DownloadStatus.completed) {
+           song.downloadProgress = 0.0;
+         }
       }
-    }
-    notifyListeners();
+     
   }
 
-  // Pausar canción
   Future<void> pauseSong() async {
-    await _audioPlayer.pause();
+    try {
+      await _audioHandler.pause();
+      
+    } catch (e) {
+      debugPrint('Error al pausar la canción: $e');
+    }
   }
 
-  // Reanudar canción
   Future<void> resumeSong() async {
-    await _audioPlayer.play();
+    debugPrint('PlaylistProvider.resumeSong() llamado'); 
+    try {
+      await _audioHandler.play();
+    
+    } catch (e) {
+      debugPrint('Error al reanudar la canción: $e');
+    }
   }
 
-  // Pausar o reanudar
   Future<void> pauseOrResume() async {
-    if (_audioPlayer.playing) {
+    
+    final state = _audioHandler.playbackState.value;
+    if (state.playing) {
       await pauseSong();
     } else {
       await resumeSong();
@@ -200,31 +243,21 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> seekTo(Duration position) async {
-    await _audioPlayer.seek(position);
+    await _audioHandler.seek(position);
   }
 
-  // Siguiente canción
-  void playNextSong() {
-    if (_currentSongIndex != null && _currentSongIndex! < _playlist.length - 1) {
-      _currentSongIndex = _currentSongIndex! + 1;
-      currentSongIndex = _currentSongIndex;
-      notifyListeners();
-    }
+  Future<void> nextSong() async {
+    await _audioHandler.skipToNext();
+   
   }
 
-  // Canción anterior
-  void playPreviousSong() {
-    if (_currentSongIndex != null && _currentSongIndex! > 0) {
-      _currentSongIndex = _currentSongIndex! - 1;
-      currentSongIndex = _currentSongIndex;
-      notifyListeners();
-    }
+  Future<void> previousSong() async {
+    await _audioHandler.skipToPrevious();
+    
   }
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
     super.dispose();
   }
 }
-
